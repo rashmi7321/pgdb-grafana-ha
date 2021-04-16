@@ -1,0 +1,93 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: grafana-deployment
+  namespace: monitoring
+  labels:
+    app: grafana-deployment
+    component: grafana-core
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: grafana-deployment
+      component: grafana-core
+  serviceName: grafana-service
+  template:
+    metadata:
+      labels:
+        app: grafana-deployment
+        component: grafana-core
+    spec:
+      containers:
+      - image: grafana/grafana
+        name: grafana-deployment
+        resources:
+          limits:
+            cpu: 100m
+            memory: 100Mi
+          requests:
+            cpu: 100m
+            memory: 100Mi
+        env:
+        #- name: GF_SERVER_DOMAIN
+        # value: "sample.server.com"
+        #- name: GF_SERVER_ROOT_URL
+        #  value: "http://sample.server.com/"
+        - name: GF_AUTH_BASIC_ENABLED
+          value: "true"
+        - name: GF_AUTH_ANONYMOUS_ENABLED
+          value: "false"
+        - name: GF_DATABASE_TYPE
+          value: "postgres"
+        - name: GF_DATABASE_HOST
+          value: "postgres-service.monitoring.svc.cluster.local:5432"
+        - name: GF_DATABASE_NAME
+          value: "grafanadb"
+        - name: GF_DATABASE_USER
+          valueFrom:
+            secretKeyRef:
+              name: grafana-secret-ha
+              key: grafanadb-user
+        - name: GF_DATABASE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: grafana-secret-ha
+              key: grafanadb-password
+        - name:  GF_SECURITY_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: grafana-secret-ha
+              key: grafana-admin-password
+        readinessProbe:
+          httpGet:
+            path: /login
+            port: 3000
+        volumeMounts:
+        - name: config-grafana-ha
+          mountPath: /etc/grafana/grafana.ini
+          subPath: grafana.ini
+      volumes:
+      - configMap:
+          defaultMode: 420
+          name: config-grafana-ha
+        name: config-grafana-ha
+      initContainers:
+      - name: fix-volume-permissions-to-grafana
+        securityContext:
+          runAsUser: 0
+          runAsGroup: 0
+        image: busybox
+        command: ["sh", "-c", "chown -R 0:0 /var/lib/grafana"]
+        volumeMounts:
+        - name: grafana-volume
+          mountPath: /var/lib/grafana
+  volumeClaimTemplates:
+  - metadata:
+      name: grafana-volume
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      storageClassName: standard
+      resources:
+        requests:
+          storage: 5Gi
